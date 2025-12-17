@@ -27,13 +27,6 @@ pub struct AppConfigLocation {
 }
 
 impl AppConfigLocation {
-    pub fn from_file(file_name: impl Into<String>) -> Self {
-        Self {
-            app_name: env!("CARGO_PKG_NAME").to_string(),
-            file_name: file_name.into(),
-        }
-    }
-
     pub fn new(app_name: impl Into<String>, file_name: impl Into<String>) -> Self {
         Self {
             app_name: app_name.into(),
