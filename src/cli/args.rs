@@ -17,7 +17,4 @@ pub struct InitArgs {
 }
 
 #[derive(Debug, Parser)]
-pub struct RuntimeArgs {
-    #[arg(short, long)]
-    pub verbose: bool,
-}
+pub struct RuntimeArgs {}
