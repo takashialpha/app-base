@@ -15,8 +15,18 @@ pub mod context {
 
 pub use context::Context;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Privilege {
+    User,
+    Root,
+}
+
 pub trait App {
     type Config: serde::de::DeserializeOwned + serde::Serialize + Default;
+
+    fn privilege() -> Privilege {
+        Privilege::User
+    }
 
     fn run(&self, ctx: Context<Self::Config>) -> Result<(), AppError>;
 }
@@ -48,11 +58,32 @@ impl AppConfigLocation {
     }
 }
 
+fn assert_privilege(required: Privilege) {
+    if required == Privilege::Root {
+        #[cfg(unix)]
+        {
+            if unsafe { libc::geteuid() } != 0 {
+                eprintln!("this application must be run as root");
+                std::process::exit(1);
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            eprintln!(
+                "your platform is not supported. if you want to run this program, you must disable assert_privilege, which may break the application."
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
 pub fn run<A: App>(app: A, cfg: AppConfigLocation) -> Result<(), AppError> {
+    assert_privilege(A::privilege());
+
     let cli_args = cli::parse();
 
     let opts = cfg.to_toml_options();
-
     let config = config::load::<A::Config>(cli_args.init.config, opts)?;
 
     let ctx = Context {
