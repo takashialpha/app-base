@@ -15,7 +15,7 @@ pub struct TomlOptions {
 impl Default for TomlOptions {
     fn default() -> Self {
         Self {
-            app_name: "app".into(),
+            app_name: "rust_unnamed_app".into(),
             config_dir: None,
         }
     }
@@ -47,7 +47,7 @@ fn default_path(opts: &TomlOptions) -> Result<PathBuf, ConfigError> {
         Some(dir) => dir.clone(),
         None => {
             let base = dirs::config_dir().ok_or(ConfigError::ConfigDirNotFound)?;
-            base.join(&opts.app_name)
+            base.join(format!(".{}", &opts.app_name)) // default: hidden
         }
     };
 
