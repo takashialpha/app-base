@@ -1,5 +1,7 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    Arc, OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 use tokio::runtime::Handle;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::Notify;
@@ -15,6 +17,7 @@ pub struct SignalHandler {
     shutdown: Arc<Notify>,
     reload: Arc<Notify>,
     shutdown_flag: Arc<AtomicBool>,
+    installed: Arc<OnceLock<()>>,
 }
 
 impl SignalHandler {
@@ -23,38 +26,24 @@ impl SignalHandler {
             shutdown: Arc::new(Notify::new()),
             reload: Arc::new(Notify::new()),
             shutdown_flag: Arc::new(AtomicBool::new(false)),
+            installed: Arc::new(OnceLock::new()),
         }
     }
 
-    pub async fn wait_shutdown(&self) {
-        self.shutdown.notified().await;
-    }
+    /// Install signal listeners.
+    /// # Panics
+    /// Panics if called outside a Tokio runtime.
+    /// Panics if called more than once.
+    pub fn install(&self) {
+        self.installed
+            .set(())
+            .expect("SignalHandler::install called more than once");
 
-    pub async fn wait_reload(&self) {
-        self.reload.notified().await;
-    }
+        let handle = Handle::try_current()
+            .expect("SignalHandler::install must be called from within a Tokio runtime");
 
-    pub fn is_shutdown(&self) -> bool {
-        self.shutdown_flag.load(Ordering::Relaxed)
-    }
-
-    pub fn trigger_shutdown(&self) {
-        tracing::debug!(target: "app_base::signals", "shutdown triggered manually");
-        self.shutdown_flag.store(true, Ordering::Relaxed);
-        self.shutdown.notify_waiters();
-    }
-
-    pub fn trigger_reload(&self) {
-        tracing::debug!(target: "app_base::signals", "reload triggered manually");
-        self.reload.notify_one();
-    }
-
-    pub fn install(self) -> Self {
-        let handler = self.clone();
-        let handle = Handle::current();
-
-        let shutdown = handler.shutdown.clone();
-        let shutdown_flag = handler.shutdown_flag.clone();
+        let shutdown = self.shutdown.clone();
+        let shutdown_flag = self.shutdown_flag.clone();
 
         handle.spawn(async move {
             let mut sigterm =
@@ -74,7 +63,7 @@ impl SignalHandler {
             }
         });
 
-        let reload = handler.reload.clone();
+        let reload = self.reload.clone();
         handle.spawn(async move {
             let mut sighup =
                 signal(SignalKind::hangup()).expect("failed to install SIGHUP handler");
@@ -83,8 +72,27 @@ impl SignalHandler {
                 reload.notify_one();
             }
         });
+    }
 
-        handler
+    pub async fn wait_shutdown(&self) {
+        self.shutdown.notified().await;
+    }
+
+    pub async fn wait_reload(&self) {
+        self.reload.notified().await;
+    }
+
+    pub fn is_shutdown(&self) -> bool {
+        self.shutdown_flag.load(Ordering::Relaxed)
+    }
+
+    pub fn trigger_shutdown(&self) {
+        self.shutdown_flag.store(true, Ordering::Relaxed);
+        self.shutdown.notify_waiters();
+    }
+
+    pub fn trigger_reload(&self) {
+        self.reload.notify_one();
     }
 }
 
